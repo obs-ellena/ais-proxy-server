@@ -8,7 +8,6 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3001;
 const API_KEY = 'c0b0ae17e5fc3886ce244878572ff181b3ff15b3';
-const ENGLISH_CHANNEL_BBOX = [[-6.0, 48.0], [2.0, 51.5]];
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -31,10 +30,12 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 let aisStream = null;
-let reconnectInterval = null;
+let reconnectTimeout = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 function connectToAISStream() {
-    console.log('🚢 Connecting to AISStream.io...');
+    console.log(`🚢 Connecting to AISStream.io... (attempt ${reconnectAttempts + 1})`);
     
     aisStream = new WebSocket('wss://stream.aisstream.io/v0/stream');
     
@@ -42,19 +43,25 @@ function connectToAISStream() {
         console.log('✅ Connected to AISStream.io');
         console.log(`📡 Broadcasting to ${wss.clients.size} clients`);
         
+        reconnectAttempts = 0; // Reset on successful connection
+        
+        // Send subscription message - must be within 3 seconds!
         const subscriptionMessage = {
             APIKey: API_KEY,
-            BoundingBoxes: [ENGLISH_CHANNEL_BBOX],
+            BoundingBoxes: [
+                [[-6.0, 48.0], [2.0, 51.5]]  // English Channel: SW to NE corners
+            ],
             FilterMessageTypes: ['PositionReport']
         };
         
+        console.log('📤 Sending subscription:', JSON.stringify(subscriptionMessage));
         aisStream.send(JSON.stringify(subscriptionMessage));
-        console.log('📤 Subscription sent for English Channel');
+        console.log('✅ Subscription sent successfully');
         
-        // Clear any reconnect interval
-        if (reconnectInterval) {
-            clearInterval(reconnectInterval);
-            reconnectInterval = null;
+        // Clear any reconnect timeout
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
         }
     });
     
@@ -81,18 +88,31 @@ function connectToAISStream() {
     
     aisStream.on('error', (error) => {
         console.error('❌ AISStream error:', error.message);
+        console.error('Error code:', error.code);
+        console.error('Error type:', error.type);
     });
     
-    aisStream.on('close', () => {
-        console.log('🔌 AISStream disconnected');
+    aisStream.on('close', (code, reason) => {
+        console.log(`🔌 AISStream disconnected - Code: ${code}, Reason: ${reason || 'No reason provided'}`);
         
-        // Auto-reconnect after 5 seconds
-        if (!reconnectInterval) {
-            reconnectInterval = setTimeout(() => {
-                console.log('🔄 Reconnecting to AISStream...');
+        // Don't reconnect immediately if we've failed too many times
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.error(`❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Waiting 60 seconds...`);
+            reconnectTimeout = setTimeout(() => {
+                reconnectAttempts = 0;
                 connectToAISStream();
-            }, 5000);
+            }, 60000);
+            return;
         }
+        
+        // Auto-reconnect after delay (exponential backoff)
+        const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 30000);
+        console.log(`🔄 Reconnecting in ${delay / 1000} seconds...`);
+        
+        reconnectAttempts++;
+        reconnectTimeout = setTimeout(() => {
+            connectToAISStream();
+        }, delay);
     });
 }
 
@@ -118,7 +138,8 @@ wss.on('connection', (ws, req) => {
 // Start the server
 server.listen(PORT, () => {
     console.log(`🚀 AIS Proxy Server running on port ${PORT}`);
-    console.log(`📍 Monitoring English Channel: ${JSON.stringify(ENGLISH_CHANNEL_BBOX)}`);
+    console.log(`📍 Monitoring English Channel`);
+    console.log(`🔑 API Key: ${API_KEY.substring(0, 8)}...`);
     
     // Connect to AIS stream on startup
     connectToAISStream();
