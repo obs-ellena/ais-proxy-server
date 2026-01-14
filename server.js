@@ -46,10 +46,11 @@ function connectToAISStream() {
         reconnectAttempts = 0; // Reset on successful connection
         
         // Send subscription message - must be within 3 seconds!
+        // WORLDWIDE COVERAGE - Track all vessels globally
         const subscriptionMessage = {
             APIKey: API_KEY,
             BoundingBoxes: [
-                [[-6.0, 48.0], [2.0, 51.5]]  // English Channel: SW to NE corners
+                [[-90, -180], [90, 180]]  // Entire world coverage
             ],
             FilterMessageTypes: ['PositionReport']
         };
@@ -138,7 +139,7 @@ wss.on('connection', (ws, req) => {
 // Start the server
 server.listen(PORT, () => {
     console.log(`🚀 AIS Proxy Server running on port ${PORT}`);
-    console.log(`📍 Monitoring English Channel`);
+    console.log(`🌍 Monitoring WORLDWIDE vessel traffic`);
     console.log(`🔑 API Key: ${API_KEY.substring(0, 8)}...`);
     
     // Connect to AIS stream on startup
